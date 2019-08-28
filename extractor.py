@@ -1,15 +1,27 @@
 import cv2
 import numpy as np
+np.set_printoptions(suppress=True)
 from skimage.measure import ransac
 from skimage.transform import FundamentalMatrixTransform
 
+def add_ones(x):
+    return np.concatenate([x, np.ones((x.shape[0], 1))], axis=1)
+
 class Extractor(object):
-    def __init__(self):
+    def __init__(self, K):
         self.orb = cv2.ORB_create()
-        self.gridY = 16//2
-        self.gridX = 12//2
         self.last = None
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+        self.K = K
+        self.Kinv = np.linalg.inv(self.K)
+
+    def normalize(self, pts):
+        return np.dot(self.Kinv, add_ones(pts).T).T[:,0:2]
+        
+    def denormalize(self, pt):
+        ret = np.dot(self.K, [pt[0], pt[1], 1.0])
+        ret = ret/ret[2]
+        return int(round(ret[0])), int(round(ret[1]))
         
     def extract(self, img):
         # detection
@@ -28,19 +40,20 @@ class Extractor(object):
                     kp1 = kps[m.queryIdx].pt
                     kp2 = self.last['kps'][m.trainIdx].pt
                     ret.append((kp1, kp2))
-
         # filter
         if len(ret) > 0:
             ret = np.array(ret)
 
+            # normalizing image
+            ret[:,0,:] = self.normalize(ret[:,0,:])
+            ret[:,1,:] = self.normalize(ret[:,1,:])
             
-
             model, inliers = ransac((ret[:,0], ret[0:,1]),
                                  FundamentalMatrixTransform,
                                  min_samples=8,
                                  residual_threshold=1, max_trials=100)
             ret = ret[inliers]
-
+            print(model.params)
         self.last = {'kps': kps, 'des': des}
         return ret
         #return kps, des, matches
